@@ -1,15 +1,17 @@
 package public
 
 import (
-	chi "github.com/go-chi/chi/v5"
+	"github.com/gin-gonic/gin"
 )
 
-// Router aggregates public handlers.
-// Additional routes can be mounted here following clean architecture boundaries.
-func Router(healthHandler *HealthHandler) *chi.Mux {
-	r := chi.NewRouter()
-	// Public endpoints
-	r.Get(RouteHealth, healthHandler.Health)
-	r.Get(RouteHealthDB, healthHandler.HealthDB)
-	return r
+type Route struct {
+	delivery *Delivery
+}
+
+func (routes Route) Register(r *gin.Engine) {
+	r.GET(RoutePing, routes.delivery.HealthCheck)
+}
+
+func NewRoute(delivery *Delivery) *Route {
+	return &Route{delivery: delivery}
 }

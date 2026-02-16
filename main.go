@@ -1,44 +1,56 @@
 package main
 
 import (
-	"context"
+	"errors"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
+	"strconv"
 
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"github.com/xeventa/base-service/app"
+	"github.com/xeventa/base-service/core/environment"
 )
 
 func main() {
-	container, err := app.New()
+	// initialize config
+	conf, err := environment.ProvideConfig()
 	if err != nil {
-		panic(err)
+		panic(err.Error())
 	}
 
-	srv := &http.Server{
-		Addr:    container.Config.HTTPPort,
-		Handler: container.Handler,
+	logrus.Info(conf.AppName, " is running on ", conf.AppHost, ":", conf.AppPort, " ", conf.AppEnv, " mode")
+
+	// Force log's color
+	gin.ForceConsoleColor()
+	router := gin.New()
+	router.Use(gin.Logger())
+
+	// Recovery middleware recovers from any panics and writes a 500 if there was one.
+	router.Use(gin.Recovery())
+
+	routes, err := app.InjectRoutes()
+	if err != nil {
+		panic(err.Error())
 	}
 
-	// Run server in a goroutine
-	go func() {
-		container.Logger.Info().Str("addr", srv.Addr).Msg("starting HTTP server")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			container.Logger.Fatal().Err(err).Msg("http server error")
-		}
-	}()
+	for _, route := range routes {
+		route.Register(router)
+	}
 
-	// Graceful shutdown
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
-	container.Logger.Info().Msg("shutting down")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = srv.Shutdown(ctx)
-	if container.DB != nil {
-		_ = container.DB.Close()
+	// Start server using Listen so we honor configured host/port/protocol
+	Listen(conf, router)
+}
+
+// Listen is a func to start http server
+func Listen(conf *environment.Config, handler http.Handler) {
+	addr := conf.AppHost + ":" + strconv.Itoa(conf.AppPort)
+	var err error
+	if conf.AppProtocol == "http" {
+		err = http.ListenAndServe(addr, handler)
+	} else {
+		err = errors.New("Unsupported protocol: " + conf.AppProtocol)
+	}
+	if err != nil {
+		panic("Failed to start server: " + err.Error())
 	}
 }

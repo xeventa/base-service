@@ -1,6 +1,5 @@
 package public
 
 const (
-	RouteHealth   = "/health"
-	RouteHealthDB = "/health/db"
+	RoutePing = "/public/ping"
 )

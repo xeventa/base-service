@@ -1,39 +1,91 @@
 package environment
 
 import (
-	"os"
+	"fmt"
+	"reflect"
+	"strconv"
+	"strings"
+
+	"github.com/joho/godotenv"
+	"github.com/spf13/viper"
 )
 
-// Config holds general environment parameters for the service.
-// Values are loaded from OS env vars with sensible defaults.
-// Adjust as needed for your deployment.
 type Config struct {
 	AppName     string
-	Env         string // e.g., development, staging, production
-	HTTPPort    string // e.g., ":8080"
-	DatabaseURL string // PostgreSQL DSN
+	AppEnv      string
+	AppHost     string
+	AppPort     int
+	AppProtocol string
+
+	DatabaseName string
+	DatabaseUsr  string
+	DatabasePw   string
+	DatabasePort string
+	DatabaseHost string
 }
 
-// Load reads environment variables and returns a Config.
-// Defaults:
-// - AppName: BASE_SERVICE
-// - Env: development
-// - HTTPPort: :8080
-// - DatabaseURL: empty (optional)
-func Load() Config {
-	cfg := Config{
-		AppName:     getEnv("APP_NAME", "BASE_SERVICE"),
-		Env:         getEnv("APP_ENV", "development"),
-		HTTPPort:    getEnv("HTTP_PORT", ":8080"),
-		DatabaseURL: getEnv("DATABASE_URL", "root:GgSfGkOmQ~HyemuLzvJZM~THJ0joWfk9@tcp(tramway.proxy.rlwy.net:25766)/?parseTime=true&charset=utf8mb4&loc=Local"),
+func ProvideConfig() (*Config, error) {
+	var cfg Config
+
+	_ = godotenv.Load(".env")
+
+	viper.AutomaticEnv()
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+
+	// Bind env for known fields (both styles: APPPORT and APP_PORT)
+	t := reflect.TypeOf(cfg)
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		upper := strings.ToUpper(field.Name)
+		viper.BindEnv(upper)
+		viper.BindEnv(strings.ReplaceAll(upper, "PORT", "_PORT"))
+		viper.BindEnv(strings.ReplaceAll(upper, "HOST", "_HOST"))
+		viper.BindEnv(strings.ReplaceAll(upper, "ENV", "_ENV"))
+		viper.BindEnv(strings.ReplaceAll(upper, "NAME", "_NAME"))
+		viper.BindEnv(strings.ReplaceAll(upper, "PROTOCOL", "_PROTOCOL"))
 	}
-	return cfg
+
+	// Read values explicitly to avoid type issues and support underscore variants
+	cfg.AppName = firstNonEmpty(viper.GetString("APPNAME"), viper.GetString("APP_NAME"))
+	cfg.AppEnv = firstNonEmpty(viper.GetString("APPENV"), viper.GetString("APP_ENV"))
+	cfg.AppHost = firstNonEmpty(viper.GetString("APPHOST"), viper.GetString("APP_HOST"))
+	cfg.AppProtocol = firstNonEmpty(viper.GetString("APPPROTOCOL"), viper.GetString("APP_PROTOCOL"))
+
+	// Port: prefer int getters; fall back to parsing string
+	port := viper.GetInt("APPPORT")
+	if port == 0 {
+		port = viper.GetInt("APP_PORT")
+	}
+	if port == 0 {
+		ps := firstNonEmpty(viper.GetString("APPPORT"), viper.GetString("APP_PORT"))
+		if ps != "" {
+			if p, perr := strconv.Atoi(ps); perr == nil {
+				port = p
+			}
+		}
+	}
+	cfg.AppPort = port
+
+	cfg.DatabaseName = firstNonEmpty(viper.GetString("DATABASENAME"), viper.GetString("DATABASE_NAME"))
+	cfg.DatabaseUsr = firstNonEmpty(viper.GetString("DATABASEUSR"), viper.GetString("DATABASE_USR"))
+	cfg.DatabasePw = firstNonEmpty(viper.GetString("DATABASEPW"), viper.GetString("DATABASE_PW"))
+	cfg.DatabasePort = firstNonEmpty(viper.GetString("DATABASEPORT"), viper.GetString("DATABASE_PORT"))
+	cfg.DatabaseHost = firstNonEmpty(viper.GetString("DATABASEHOST"), viper.GetString("DATABASE_HOST"))
+
+	// Minimal validation: require essential fields
+	if cfg.AppPort <= 0 {
+		return nil, fmt.Errorf("invalid AppPort (from .env): %d", cfg.AppPort)
+	}
+	if cfg.AppProtocol == "" {
+		return nil, fmt.Errorf("invalid AppProtocol (from .env): empty")
+	}
+
+	return &cfg, nil
 }
 
-func getEnv(key, def string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
 	}
-	return v
+	return b
 }
