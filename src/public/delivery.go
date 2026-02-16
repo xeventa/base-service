@@ -18,3 +18,8 @@ func (d *Delivery) HealthCheck(ctx *gin.Context) {
 	data := d.service.HealthCheck()
 	ctx.JSON(200, data)
 }
+
+func (d *Delivery) DBPing(ctx *gin.Context) {
+	data := d.service.DBPing()
+	ctx.JSON(200, data)
+}

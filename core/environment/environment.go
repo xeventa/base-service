@@ -2,9 +2,7 @@ package environment
 
 import (
 	"fmt"
-	"reflect"
 	"strconv"
-	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
@@ -27,37 +25,21 @@ type Config struct {
 func ProvideConfig() (*Config, error) {
 	var cfg Config
 
+	// Load .env into process env
 	_ = godotenv.Load(".env")
 
+	// Read only from environment; single canonical keys
 	viper.AutomaticEnv()
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
-	// Bind env for known fields (both styles: APPPORT and APP_PORT)
-	t := reflect.TypeOf(cfg)
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		upper := strings.ToUpper(field.Name)
-		viper.BindEnv(upper)
-		viper.BindEnv(strings.ReplaceAll(upper, "PORT", "_PORT"))
-		viper.BindEnv(strings.ReplaceAll(upper, "HOST", "_HOST"))
-		viper.BindEnv(strings.ReplaceAll(upper, "ENV", "_ENV"))
-		viper.BindEnv(strings.ReplaceAll(upper, "NAME", "_NAME"))
-		viper.BindEnv(strings.ReplaceAll(upper, "PROTOCOL", "_PROTOCOL"))
-	}
+	cfg.AppName = viper.GetString("APP_NAME")
+	cfg.AppEnv = viper.GetString("APP_ENV")
+	cfg.AppHost = viper.GetString("APP_HOST")
+	cfg.AppProtocol = viper.GetString("APP_PROTOCOL")
 
-	// Read values explicitly to avoid type issues and support underscore variants
-	cfg.AppName = firstNonEmpty(viper.GetString("APPNAME"), viper.GetString("APP_NAME"))
-	cfg.AppEnv = firstNonEmpty(viper.GetString("APPENV"), viper.GetString("APP_ENV"))
-	cfg.AppHost = firstNonEmpty(viper.GetString("APPHOST"), viper.GetString("APP_HOST"))
-	cfg.AppProtocol = firstNonEmpty(viper.GetString("APPPROTOCOL"), viper.GetString("APP_PROTOCOL"))
-
-	// Port: prefer int getters; fall back to parsing string
-	port := viper.GetInt("APPPORT")
+	// Port: prefer int getter, fallback to string parse
+	port := viper.GetInt("APP_PORT")
 	if port == 0 {
-		port = viper.GetInt("APP_PORT")
-	}
-	if port == 0 {
-		ps := firstNonEmpty(viper.GetString("APPPORT"), viper.GetString("APP_PORT"))
+		ps := viper.GetString("APP_PORT")
 		if ps != "" {
 			if p, perr := strconv.Atoi(ps); perr == nil {
 				port = p
@@ -66,26 +48,19 @@ func ProvideConfig() (*Config, error) {
 	}
 	cfg.AppPort = port
 
-	cfg.DatabaseName = firstNonEmpty(viper.GetString("DATABASENAME"), viper.GetString("DATABASE_NAME"))
-	cfg.DatabaseUsr = firstNonEmpty(viper.GetString("DATABASEUSR"), viper.GetString("DATABASE_USR"))
-	cfg.DatabasePw = firstNonEmpty(viper.GetString("DATABASEPW"), viper.GetString("DATABASE_PW"))
-	cfg.DatabasePort = firstNonEmpty(viper.GetString("DATABASEPORT"), viper.GetString("DATABASE_PORT"))
-	cfg.DatabaseHost = firstNonEmpty(viper.GetString("DATABASEHOST"), viper.GetString("DATABASE_HOST"))
+	cfg.DatabaseName = viper.GetString("DATABASE_NAME")
+	cfg.DatabaseUsr = viper.GetString("DATABASE_USR")
+	cfg.DatabasePw = viper.GetString("DATABASE_PW")
+	cfg.DatabasePort = viper.GetString("DATABASE_PORT")
+	cfg.DatabaseHost = viper.GetString("DATABASE_HOST")
 
-	// Minimal validation: require essential fields
+	// Minimal validation
 	if cfg.AppPort <= 0 {
-		return nil, fmt.Errorf("invalid AppPort (from .env): %d", cfg.AppPort)
+		return nil, fmt.Errorf("invalid AppPort: %d", cfg.AppPort)
 	}
 	if cfg.AppProtocol == "" {
-		return nil, fmt.Errorf("invalid AppProtocol (from .env): empty")
+		return nil, fmt.Errorf("invalid AppProtocol: empty")
 	}
 
 	return &cfg, nil
-}
-
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
